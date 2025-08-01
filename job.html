@@ -1,0 +1,135 @@
+<!-- 
+Author: Darran Zhang @ codelast.com
+Version: 0.1
+Date: 2025-07-17
+Description: Web-based tool for displaying detailed job information in Azkaban workflows.
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>作业详情</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #f2f2f2;
+            width: 200px;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+
+    </style>
+</head>
+<body>
+    <div class="container">
+<h1 id="job-title">作业详情</h1>
+        <table id="job-details">
+            <tbody>
+                <!-- 作业详情将通过JavaScript动态生成 -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 从URL获取参数
+        const urlParams = new URLSearchParams(window.location.search);
+        const workflowName = urlParams.get('workflow');
+        const nodeName = urlParams.get('node');
+        
+        // 收集除了 workflow 和 node 之外的所有参数
+        const jobParameters = {};
+        for (const [key, value] of urlParams.entries()) {
+            if (key !== 'workflow' && key !== 'node') {
+                jobParameters[key] = decodeURIComponent(value);
+            }
+        }
+        
+        // 显示作业详情
+        function displayJobDetails() {
+            // 更新标题
+            if (nodeName) {
+                if (workflowName) {
+                    document.getElementById('job-title').textContent = `作业: ${nodeName} (工作流: ${workflowName})`;
+                } else {
+                    document.getElementById('job-title').textContent = `作业: ${nodeName}`;
+                }
+            } else {
+                document.getElementById('job-title').textContent = '错误: 未提供作业名称';
+            }
+            
+            const tbody = document.querySelector('#job-details tbody');
+            tbody.innerHTML = '';
+            
+            // 添加表格行
+            const addRow = (key, value) => {
+                const row = document.createElement('tr');
+                
+                // 键列
+                const keyCell = document.createElement('th');
+                keyCell.textContent = key;
+                keyCell.style.textAlign = 'left';
+                keyCell.style.padding = '8px';
+                keyCell.style.border = '1px solid #ddd';
+                
+                // 值列
+                const valueCell = document.createElement('td');
+                valueCell.textContent = value || '';
+                valueCell.style.padding = '8px';
+                valueCell.style.border = '1px solid #ddd';
+                valueCell.style.whiteSpace = 'pre-wrap';
+                valueCell.style.wordBreak = 'break-all';
+                
+                row.appendChild(keyCell);
+                row.appendChild(valueCell);
+                tbody.appendChild(row);
+            };
+            
+            // 显示所有URL参数
+            for (const [key, value] of Object.entries(jobParameters)) {
+                addRow(key, value);
+            }
+        }
+        
+        // 页面加载完成后显示作业详情
+        document.addEventListener('DOMContentLoaded', displayJobDetails);
+    </script>
+</body>
+</html>

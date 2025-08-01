@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<!-- 
+Author: Darran Zhang @ codelast.com
+Version: 0.1
+Date: 2025-07-17
+Description: Web-based tool for visualizing Azkaban workflows.
+-->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azkaban Workflow 可视化工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        #drop-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background-color: #fafafa;
+        }
+        
+        #drop-area.highlight {
+            border-color: #4CAF50;
+            background-color: #f0fff0;
+        }
+        
+        #drop-area p {
+            margin: 0;
+            color: #666;
+            font-size: 16px;
+        }
+        
+        #file-input {
+            display: none;
+        }
+        
+        #workflow-container {
+            margin-top: 20px;
+            overflow: auto;
+            padding: 10px;
+            background: white;
+        }
+        
+        .workflow-graph-container {
+            margin-bottom: 30px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .node rect {
+            stroke: #999;
+            fill: #fff;
+            stroke-width: 1.5px;
+            rx: 4px;
+            ry: 4px;
+        }
+        
+        .node.root-node rect {
+            fill: #fff9c4;
+        }
+        
+        .node.leaf-node rect,
+        .node.independent-node rect {
+            fill: #c8e6c9;
+        }
+        
+        .node .label {
+            font-size: 16px;
+            text-align: center;
+        }
+        
+        .edgePath path {
+            stroke: #666;
+            stroke-width: 1.5px;
+            fill: none;
+        }
+        
+        /* 使箭头看起来更实心 */
+        .edgePath marker path {
+            stroke: #666;
+            fill: #666;
+        }
+        
+        .node.highlight rect {
+            stroke: #ff5722;
+            stroke-width: 2px;
+        }
+        
+        .node.highlight .label {
+            font-weight: bold;
+            fill: #ff5722;
+        }
+        
+        .edgePath.highlight path {
+            stroke: #ff5722;
+            stroke-width: 2px;
+        }
+        
+        #file-info {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f0f8ff;
+            border-radius: 4px;
+            display: none;
+        }
+        
+        .legend {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Azkaban Workflow 可视化工具</h1>
+        
+        <div id="drop-area">
+            <p>将ZIP文件拖放到此处 或 点击选择文件</p>
+            <input type="file" id="file-input" accept=".zip">
+        </div>
+        
+        <div id="file-info"></div>
+        
+        <div class="legend">
+            <strong>使用说明：</strong> 上传包含Azkaban作业配置的ZIP文件，系统将自动解析并显示工作流图。
+            <br>ZIP文件应包含一个配置文件和多个作业(.job)文件。
+        </div>
+        
+        <div id="workflow-container">
+        <!-- 工作流将在这里动态添加 -->
+    </div>
+    </div>
+
+    <!-- 本地引入的JS库，需在运行本程序前，预先下载到当前目录下 -->
+    <script src="d3.min.js"></script>
+    <script src="dagre-d3.min.js"></script>
+    <script src="jszip.min.js"></script>
+    
+    <script>
+        // 全局变量
+        let currentWorkflow = null;
+        
+        // DOM 元素
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input');
+        const fileInfo = document.getElementById('file-info');
+        const workflowContainer = document.getElementById('workflow-container');
+        
+        // 初始化事件监听
+        function initEventListeners() {
+            // 点击上传区域
+            dropArea.addEventListener('click', () => fileInput.click());
+            
+            // 文件选择变化
+            fileInput.addEventListener('change', handleFileSelect);
+            
+            // 拖放事件
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            // 拖放高亮
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, highlight, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, unhighlight, false);
+            });
+            
+            // 处理拖放文件
+            dropArea.addEventListener('drop', handleDrop, false);
+        }
+        
+        // 阻止默认行为
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        // 高亮拖放区域
+        function highlight() {
+            dropArea.classList.add('highlight');
+        }
+        
+        // 取消高亮
+        function unhighlight() {
+            dropArea.classList.remove('highlight');
+        }
+        
+        // 处理拖放文件
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length) {
+                handleFiles(files);
+            }
+        }
+        
+        // 处理文件选择
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length) {
+                handleFiles(files);
+            }
+        }
+        
+        // 处理文件
+        async function handleFiles(files) {
+            const file = files[0];
+            if (!file.name.endsWith('.zip')) {
+                showError('请上传ZIP格式的文件');
+                return;
+            }
+            
+            showFileInfo(`正在处理文件: ${file.name}`);
+            
+            try {
+                // 读取ZIP文件
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                
+                // 解析ZIP内容
+                const workflows = await parseWorkflow(zip);
+                
+                console.log('解析到的工作流:', workflows);
+                workflows.forEach(wf => {
+                    console.log(`工作流: ${wf.name}, 作业数量: ${wf.jobs.length}, 依赖关系: ${wf.dependencies.length}`);
+                });
+                
+                // 清空容器
+                d3.select('#workflow-container').selectAll('*').remove();
+                
+                // 显示工作流数量
+                showFileInfo(`成功加载 ${workflows.length} 个workflow`);
+                
+                // 渲染每个工作流
+                workflows.forEach(workflow => {
+                    console.log(`正在渲染工作流: ${workflow.name} (${workflow.jobs.length} 个作业)`);
+                    if (workflow.jobs.length > 0) {
+                        renderWorkflow(workflow);
+                    } else {
+                        console.warn(`工作流 ${workflow.name} 没有作业，跳过渲染`);
+                    }
+                });
+                
+                if (workflows.length === 0) {
+                    showError('未找到有效的工作流配置');
+                }
+            } catch (error) {
+                console.error('处理文件时出错:', error);
+                showError(`处理文件时出错: ${error.message}`);
+            }
+        }
+        
+        // 解析工作流
+        async function parseWorkflow(zip) {
+            // 查找所有作业文件
+            const jobFiles = Object.keys(zip.files).filter(file => 
+                file.endsWith('.job') && !file.includes('__MACOSX')
+            );
+            
+            console.log('找到的作业文件:', jobFiles);
+            
+            // 按工作流目录分组作业文件
+            const workflowMap = new Map();
+            
+            // 第一遍：收集所有工作流和作业
+            for (const jobFile of jobFiles) {
+                try {
+                    const pathParts = jobFile.split('/');
+                    const fileName = pathParts.pop();
+                    
+                    // 确定工作流名称：使用包含.job文件的目录名作为工作流名称
+                    // 例如：recall/base_recall/xxx.job -> base_recall
+                    let workflowName = 'default';
+                    if (pathParts.length > 0) {
+                        workflowName = pathParts[pathParts.length - 1];
+                    }
+                    
+                    // 对于mlprecall/data_generate这种多级目录，使用完整路径作为工作流名称
+                    if (pathParts.length > 1 && pathParts[pathParts.length - 2] === 'mlprecall') {
+                        workflowName = pathParts.slice(-2).join('/');
+                    }
+                    
+                    if (!workflowMap.has(workflowName)) {
+                        workflowMap.set(workflowName, {
+                            name: workflowName,
+                            jobs: [],
+                            dependencies: []
+                        });
+                    }
+                    
+                    const workflow = workflowMap.get(workflowName);
+                    const jobName = fileName.replace(/\.job$/, '');
+                    const jobId = `${workflowName}_${jobName}`.replace(/[\/.]/g, '_');
+                    
+                    // 解析作业文件内容以获取参数
+                    let jobConfig = { parameters: {} };
+                    try {
+                        const content = await zip.file(jobFile).async('text');
+                        jobConfig = parseJobConfig(content);
+                    } catch (error) {
+                        console.error(`解析作业文件 ${jobFile} 时出错:`, error);
+                    }
+                    
+                    // 添加作业节点，包括参数
+                    workflow.jobs.push({
+                        id: jobId,
+                        name: jobName,
+                        type: jobConfig.type || 'command',
+                        dependencies: jobConfig.dependencies || [],
+                        parameters: jobConfig.parameters || {}
+                    });
+                } catch (error) {
+                    console.error(`处理作业文件 ${jobFile} 时出错:`, error);
+                }
+            }
+            
+            // 第二遍：解析作业依赖关系
+            console.log('开始解析工作流依赖关系...');
+            for (const [workflowName, workflow] of workflowMap.entries()) {
+                console.log(`处理工作流: ${workflowName}, 作业数量: ${workflow.jobs.length}`);
+                for (const jobFile of jobFiles) {
+                    try {
+                        const pathParts = jobFile.split('/');
+                        const fileName = pathParts.pop();
+                        
+                        // 确定当前工作流
+                        let currentWorkflowName = 'default';
+                        if (pathParts.length > 0) {
+                            currentWorkflowName = pathParts[pathParts.length - 1];
+                        }
+                        if (pathParts.length > 1 && pathParts[pathParts.length - 2] === 'mlprecall') {
+                            currentWorkflowName = pathParts.slice(-2).join('/');
+                        }
+                        
+                        // 如果不是当前处理的工作流，则跳过
+                        if (currentWorkflowName !== workflowName) continue;
+                        
+                        const content = await zip.file(jobFile).async('text');
+                        const jobName = fileName.replace(/\.job$/, '');
+                        const jobConfig = parseJobConfig(content);
+                        
+                        try {
+                            // 更新作业依赖关系和参数
+                            const jobId = `${workflowName}_${jobName}`.replace(/[\/.]/g, '_');
+                            const job = workflow.jobs.find(j => j.id === jobId);
+                            
+                            if (job) {
+                                // 更新依赖关系
+                                job.dependencies = jobConfig.dependencies || [];
+                                
+                                // 更新参数
+                                job.parameters = jobConfig.parameters || {};
+                                
+                                // 添加依赖关系
+                                job.dependencies.forEach(dep => {
+                                    // 查找依赖的作业
+                                    const depJob = workflow.jobs.find(j => j.name === dep);
+                                    if (depJob) {
+                                        workflow.dependencies.push({
+                                            source: depJob.id,
+                                            target: jobId
+                                        });
+                                    }
+                                });
+                            }
+                        } catch (error) {
+                            console.error(`解析作业文件 ${jobFile} 时出错:`, error);
+                        }
+                    } catch (error) {
+                        console.error(`解析作业文件 ${jobFile} 时出错:`, error);
+                    }
+                }
+            }
+            
+            console.log('工作流解析完成，找到工作流数量:', workflowMap.size);
+            
+            // 如果没有找到工作流（比如所有作业都在根目录），则创建一个默认工作流
+            if (workflowMap.size === 0) {
+                console.log('没有找到工作流，创建默认工作流');
+                const defaultWorkflow = {
+                    name: 'default',
+                    jobs: [],
+                    dependencies: []
+                };
+                workflowMap.set('default', defaultWorkflow);
+                
+                // 尝试解析根目录下的作业文件
+                const rootJobFiles = jobFiles.filter(file => file.split('/').length === 1);
+                
+                for (const jobFile of rootJobFiles) {
+                    try {
+                        const content = await zip.file(jobFile).async('text');
+                        const jobName = jobFile.replace(/\.job$/, '');
+                        const jobConfig = parseJobConfig(content);
+                        
+                        const jobId = `default_${jobName}`;
+                        
+                        // 添加作业节点，包括所有参数
+                        defaultWorkflow.jobs.push({
+                            id: jobId,
+                            name: jobName,
+                            type: jobConfig.type || 'command',
+                            dependencies: jobConfig.dependencies || [],
+                            parameters: jobConfig.parameters || {}
+                        });
+                        
+                        // 添加依赖关系
+                        if (jobConfig.dependencies && jobConfig.dependencies.length > 0) {
+                            jobConfig.dependencies.forEach(dep => {
+                                defaultWorkflow.dependencies.push({
+                                    source: `default_${dep}`,
+                                    target: jobId
+                                });
+                            });
+                        }
+                    } catch (error) {
+                        console.error(`解析作业文件 ${jobFile} 时出错:`, error);
+                    }
+                }
+            }
+            
+            const workflows = Array.from(workflowMap.values());
+            console.log('最终返回的工作流:', workflows.map(wf => ({
+                name: wf.name,
+                jobCount: wf.jobs.length,
+                depsCount: wf.dependencies.length
+            })));
+            return workflows;
+        }
+        
+        // 解析作业配置文件
+        function parseJobConfig(content) {
+            const config = {
+                parameters: {}
+            };
+            const lines = content.split('\n');
+            
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith('#')) continue;
+                
+                const eqIndex = trimmed.indexOf('=');
+                if (eqIndex === -1) continue;
+                
+                const key = trimmed.substring(0, eqIndex).trim();
+                const value = trimmed.substring(eqIndex + 1).trim();
+                
+                // 保存所有参数
+                config.parameters[key] = value;
+                
+                // 特殊处理一些字段
+                if (key === 'dependencies') {
+                    config.dependencies = value.split(',').map(dep => dep.trim()).filter(Boolean);
+                } else if (key === 'type') {
+                    config.type = value;
+                }
+            }
+            
+            return config;
+        }
+        
+        // 渲染工作流图
+        function renderWorkflow(workflow) {
+            currentWorkflow = workflow;
+            
+            // 创建工作流标题
+            const container = d3.select('#workflow-container')
+                .append('div')
+                .classed('workflow-container', true)
+                .style('margin-bottom', '40px');
+                
+            container.append('h2')
+                .text(workflow.name || '未命名工作流')
+                .style('margin', '20px 0 10px 0')
+                .style('color', '#333');
+                
+            // 创建工作流图容器
+            const graphContainer = container.append('div')
+                .style('border', '1px solid #ddd')
+                .style('border-radius', '4px')
+                .style('overflow', 'hidden');
+                
+            // 创建SVG容器
+            const svgId = 'workflow-svg-' + workflow.name.replace(/[^a-z0-9]/gi, '-') + '-' + Date.now();
+            const svg = graphContainer.append('svg')
+                .attr('id', svgId)
+                .style('display', 'block')
+                .style('margin', '0 auto');
+            
+            // 创建有向图
+            const g = new dagreD3.graphlib.Graph()
+                .setGraph({})
+                .setDefaultEdgeLabel(() => ({}));
+            
+            // 找出所有有依赖的节点ID（非根节点）
+            const nodesWithDeps = new Set();
+            // 找出所有被依赖的节点（非叶子节点）
+            const nodesWithDependents = new Set();
+            
+            workflow.dependencies.forEach(dep => {
+                nodesWithDeps.add(dep.target);
+                nodesWithDependents.add(dep.source);
+            });
+            
+            // 添加节点
+            workflow.jobs.forEach(job => {
+                const isRootNode = !nodesWithDeps.has(job.id);
+                const isLeafNode = !nodesWithDependents.has(job.id);
+                
+                let nodeClass = 'job-node';
+                let nodeStyle = 'fill: #fff';
+                
+                if (isRootNode && isLeafNode) {
+                    // 既是根节点又是叶子节点（独立节点）
+                    nodeClass += ' independent-node';
+                    nodeStyle = 'fill: #c8e6c9';
+                } else if (isRootNode) {
+                    // 根节点（没有依赖）
+                    nodeClass += ' root-node';
+                    nodeStyle = 'fill: #fff9c4';
+                } else if (isLeafNode) {
+                    // 叶子节点（没有被依赖）
+                    nodeClass += ' leaf-node';
+                    nodeStyle = 'fill: #c8e6c9';
+                }
+                
+                // 从 job.id 中提取工作流名称和节点名称
+                const [workflowName, ...nodeParts] = job.id.split('_');
+                const nodeName = nodeParts.join('_');
+                
+                // 构建参数字符串
+                let params = `workflow=${encodeURIComponent(workflowName)}&node=${encodeURIComponent(nodeName)}`;
+                
+                // 添加所有作业参数
+                if (job.parameters) {
+                    // 首先添加特殊参数（如type, dependencies, command等）
+                    const specialParams = ['type', 'dependencies', 'command'];
+                    for (const key of specialParams) {
+                        if (job.parameters[key] !== undefined) {
+                            params += `&${encodeURIComponent(key)}=${encodeURIComponent(job.parameters[key])}`;
+                        }
+                    }
+                    
+                    // 添加其他参数（如果有）
+                    for (const [key, value] of Object.entries(job.parameters)) {
+                        if (key && value !== undefined && value !== null && !specialParams.includes(key)) {
+                            params += `&${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+                        }
+                    }
+                }
+                
+                let displayName = job.name;
+                
+                // 检查名称中是否包含"-"或"_"
+                if (job.name.includes('-')) {
+                    // 使用"-"分割名称
+                    const dashParts = job.name.split('-');
+                    if (dashParts.length > 1) {
+                        const lastPart = dashParts.pop();
+                        const firstPart = dashParts.join('-');
+                        displayName = `${firstPart}-<a href="job.html?${params}" style="color: inherit; text-decoration: none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" target="_blank">${lastPart}</a>`;
+                    }
+                } else if (job.name.includes('_')) {
+                    // 使用"_"分割名称
+                    const underscoreParts = job.name.split('_');
+                    if (underscoreParts.length > 1) {
+                        const lastPart = underscoreParts.pop();
+                        const firstPart = underscoreParts.join('_');
+                        displayName = `${firstPart}_<a href="job.html?${params}" style="color: inherit; text-decoration: none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" target="_blank">${lastPart}</a>`;
+                    }
+                }
+                
+                g.setNode(job.id, {
+                    label: `<div style="font-size: 18px; text-align: center;">${displayName}</div>`,
+                    labelType: 'html',
+                    class: nodeClass,
+                    rx: 5,
+                    ry: 5,
+                    style: nodeStyle
+                });
+            });
+            
+            // 添加边
+            workflow.dependencies.forEach(dep => {
+                g.setEdge(dep.source, dep.target, {
+                    arrowhead: 'vee',
+                    curve: d3.curveBasis
+                });
+            });
+            
+            // 设置布局选项 - 改为从上到下布局
+            g.graph().rankdir = 'TB';
+            g.graph().nodesep = 30;
+            g.graph().ranksep = 70;
+            g.graph().marginx = 20;
+            g.graph().marginy = 50;
+            
+            // 创建渲染器
+            const render = new dagreD3.render();
+            
+            // 禁用缩放行为
+            const zoom = d3.zoom()
+                .on('start', (event) => {
+                    event.sourceEvent.preventDefault(); // 阻止默认行为
+                    event.sourceEvent.stopPropagation(); // 阻止事件冒泡
+                });
+            
+            // 创建SVG组
+            const svgGroup = svg.append('g');
+            
+            try {
+                // 渲染图形
+                render(svgGroup, g);
+            } catch (error) {
+                console.error('渲染图形时出错:', error);
+                container.append('div')
+                    .style('color', 'red')
+                    .style('padding', '20px')
+                    .text(`渲染工作流 "${workflow.name}" 时出错: ${error.message}`);
+                return;
+            }
+            
+            // 获取图形尺寸
+            const { width, height } = g.graph();
+            const padding = 20;
+            
+            // 设置SVG尺寸为图形尺寸加上内边距
+            const svgWidth = width + 2 * padding;
+            const svgHeight = height + 2 * padding;
+            
+            // 设置SVG尺寸
+            svg.attr('width', '100%')
+               .attr('height', svgHeight + 'px')
+               .style('display', 'block')
+               .style('margin', '0 auto');
+            
+            // 计算缩放比例以适应容器
+            const containerWidth = graphContainer.node().clientWidth || 1000;
+            const scale = Math.min(1, (containerWidth - 40) / svgWidth);
+            
+            // 应用居中和缩放
+            svgGroup.attr('transform', `translate(${(containerWidth - width * scale) / 2},${padding}) scale(${scale})`);
+            
+            // 添加交互效果
+            svg.selectAll('.node')
+                .on('mouseover', function() {
+                    const nodeId = d3.select(this).attr('id');
+                    highlightNodeAndEdges(svg, nodeId, true);
+                })
+                .on('mouseout', function() {
+                    const nodeId = d3.select(this).attr('id');
+                    highlightNodeAndEdges(svg, nodeId, false);
+                });
+        }
+        
+        // 高亮节点和边
+        function highlightNodeAndEdges(svg, nodeId, highlight) {
+            // 高亮节点
+            svg.select(`#${nodeId} rect`)
+                .classed('highlight', highlight);
+            
+            // 高亮出边
+            svg.selectAll('.edgePath')
+                .filter(function() {
+                    const id = d3.select(this).attr('id');
+                    return id && id.includes(`${nodeId}->`);
+                })
+                .classed('highlight', highlight);
+            
+            // 高亮入边
+            svg.selectAll('.edgePath')
+                .filter(function() {
+                    const id = d3.select(this).attr('id');
+                    return id && id.includes(`->${nodeId}`);
+                })
+                .classed('highlight', highlight);
+        }
+        
+        // 显示文件信息
+        function showFileInfo(message) {
+            fileInfo.textContent = message;
+            fileInfo.style.display = 'block';
+            fileInfo.style.color = '#333';
+            fileInfo.style.backgroundColor = '#f0f8ff';
+        }
+        
+        // 显示错误信息
+        function showError(message) {
+            fileInfo.textContent = `错误: ${message}`;
+            fileInfo.style.display = 'block';
+            fileInfo.style.color = '#d32f2f';
+            fileInfo.style.backgroundColor = '#ffebee';
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initEventListeners();
+            
+            // 显示初始提示
+            showFileInfo('请上传包含Azkaban作业配置的ZIP文件');
+        });
+    </script>
+</body>
+</html>

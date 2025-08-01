@@ -1,0 +1,4 @@
+dependencies=job-4,job-5
+retries=3
+retry.backoff=600000
+command=/opt/workflow/bin/workflow-2/sub-workflow-1/job-6.sh ${TARGET_DATE}

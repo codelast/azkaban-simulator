@@ -1,0 +1,2 @@
+dependencies=job-7,job-10
+command=echo workflow-1 finished

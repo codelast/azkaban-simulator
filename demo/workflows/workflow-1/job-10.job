@@ -1,0 +1,2 @@
+dependencies=job-8,job-9
+command=/opt/workflow/bin/workflow-1/job-10.sh ${TARGET_DATE}

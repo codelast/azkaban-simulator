@@ -1,0 +1,1 @@
+command=/opt/workflow/bin/workflow-2/sub-workflow-2/job-1.sh ${TARGET_DATE}
