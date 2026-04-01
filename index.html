@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!-- 
 Author: Darran Zhang @ codelast.com
-Version: 0.1
-Date: 2025-07-17
+Version: 0.2
+Date: 2026-04-01
 Description: Web-based tool for visualizing Azkaban workflows.
 -->
 <html lang="zh-CN">
@@ -295,6 +295,7 @@ Description: Web-based tool for visualizing Azkaban workflows.
             
             // 按工作流目录分组作业文件
             const workflowMap = new Map();
+            const missingDependencies = new Map();
             
             // 第一遍：收集所有工作流和作业
             for (const jobFile of jobFiles) {
@@ -394,6 +395,15 @@ Description: Web-based tool for visualizing Azkaban workflows.
                                             source: depJob.id,
                                             target: jobId
                                         });
+                                    } else {
+                                        // 记录缺失的依赖
+                                        if (!missingDependencies.has(workflowName)) {
+                                            missingDependencies.set(workflowName, []);
+                                        }
+                                        missingDependencies.get(workflowName).push({
+                                            jobName: jobName,
+                                            missingDep: dep
+                                        });
                                     }
                                 });
                             }
@@ -454,10 +464,17 @@ Description: Web-based tool for visualizing Azkaban workflows.
             }
             
             const workflows = Array.from(workflowMap.values());
+            
+            // 将缺失的依赖信息附加到工作流对象
+            workflows.forEach(wf => {
+                wf.missingDependencies = missingDependencies.get(wf.name) || [];
+            });
+            
             console.log('最终返回的工作流:', workflows.map(wf => ({
                 name: wf.name,
                 jobCount: wf.jobs.length,
-                depsCount: wf.dependencies.length
+                depsCount: wf.dependencies.length,
+                missingDepsCount: wf.missingDependencies.length
             })));
             return workflows;
         }
@@ -507,6 +524,29 @@ Description: Web-based tool for visualizing Azkaban workflows.
                 .text(workflow.name || '未命名工作流')
                 .style('margin', '20px 0 10px 0')
                 .style('color', '#333');
+            
+            // 显示缺失的依赖信息
+            if (workflow.missingDependencies && workflow.missingDependencies.length > 0) {
+                const missingDiv = container.append('div')
+                    .style('background-color', '#fff3cd')
+                    .style('border', '1px solid #ffc107')
+                    .style('border-radius', '4px')
+                    .style('padding', '12px')
+                    .style('margin-bottom', '15px')
+                    .style('color', '#856404');
+                
+                missingDiv.append('strong')
+                    .text('⚠️ 缺失的依赖关系：');
+                
+                const missingList = missingDiv.append('ul')
+                    .style('margin', '8px 0 0 0')
+                    .style('padding-left', '20px');
+                
+                workflow.missingDependencies.forEach(missing => {
+                    missingList.append('li')
+                        .text(`节点 "${missing.jobName}" 依赖的节点 "${missing.missingDep}" 不存在`);
+                });
+            }
                 
             // 创建工作流图容器
             const graphContainer = container.append('div')
