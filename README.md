@@ -1,7 +1,7 @@
 ## 概述
 
 此项目包含一个基于 Web 的 Azkaban workflow模拟工具，用于在不部署 Azkaban([LINK](https://azkaban.github.io/)) 的情况下，快速查看一个Azkaban workflow压缩包(.zip)的流程图。
-注：Azkaban 是一个工作流调度系统。
+注：Azkaban 是一个开源的工作流调度系统。
 
 ## 主要文件说明
 
