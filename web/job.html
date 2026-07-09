@@ -69,8 +69,8 @@ Description: Web-based tool for displaying detailed job information in Azkaban w
     </div>
 
     <script>
-        // 从URL获取参数
-        const urlParams = new URLSearchParams(window.location.search);
+        // 从URL获取参数；在 VS Code Webview 中会通过 window.__vscodeJobParams 注入参数
+        const urlParams = window.__vscodeJobParams || new URLSearchParams(window.location.search);
         const workflowName = urlParams.get('workflow');
         const nodeName = urlParams.get('node');
         

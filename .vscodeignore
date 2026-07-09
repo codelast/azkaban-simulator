@@ -1,0 +1,10 @@
+.git/
+.gitignore
+.github/
+.qoder/
+.vscode/
+node_modules/
+web/node_modules/
+*.vsix
+package-lock.json
+az.png

@@ -1,0 +1,47 @@
+{
+  "name": "azkaban-simulator",
+  "displayName": "Azkaban Simulator",
+  "version": "1.0.0",
+  "description": "Visualize Azkaban workflows from ZIP files inside VS Code",
+  "author": "Darran Zhang @ codelast.com",
+  "license": "MIT",
+  "icon": "icon.png",
+  "main": "./extension.js",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "azkaban",
+    "workflow",
+    "visualization",
+    "zip"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codelast/azkaban-simulator"
+  },
+  "activationEvents": [
+    "onCommand:azkabanSimulator.open"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "azkabanSimulator.open",
+        "title": "Open Azkaban Simulator",
+        "category": "Azkaban"
+      }
+    ]
+  },
+  "scripts": {
+    "serve:web": "python3 -m http.server 8080 -d web",
+    "package": "vsce package",
+    "publish:ovsx": "ovsx publish"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.0.0"
+  }
+}
