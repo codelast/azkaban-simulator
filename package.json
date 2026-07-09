@@ -2,6 +2,7 @@
   "name": "azkaban-simulator",
   "displayName": "Azkaban Simulator",
   "version": "1.0.0",
+  "publisher": "codelast",
   "description": "Visualize Azkaban workflows from ZIP files inside VS Code",
   "author": "Darran Zhang @ codelast.com",
   "license": "MIT",
